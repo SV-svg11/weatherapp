@@ -11,61 +11,190 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+
+      # ----------------------------------------
+      # Checkout
+      # ----------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+
+      # ----------------------------------------
+      # Python
+      # ----------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
 
-      - name: Accept Android SDK licenses
-        run: |
-          yes | sdkmanager --licenses || true
-
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
-
-      - name: Verify AIDL
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          find "$ANDROID_HOME/build-tools" -name aidl -type f -print
-          "$ANDROID_HOME/build-tools/35.0.0/aidl" --version
-
+      # ----------------------------------------
+      # System dependencies
+      # ----------------------------------------
       - name: Install system dependencies
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             build-essential \
             git \
             zip \
             unzip \
+            wget \
+            curl \
             openjdk-17-jdk \
             autoconf \
             automake \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
+            autopoint \
+            ccache \
             cmake \
-            libffi-dev
+            libffi-dev \
+            libltdl-dev \
+            libssl-dev \
+            libtool \
+            make \
+            patch \
+            pkg-config
 
+
+      # ----------------------------------------
+      # Buildozer
+      # ----------------------------------------
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip
-          python -m pip install buildozer==1.6.0 cython==0.29.37
+          python -m pip install buildozer==1.6.0
+          python -m pip install cython==0.29.37
 
+
+      # ----------------------------------------
+      # Prepare Buildozer Android environment
+      # ----------------------------------------
+      - name: Initialize Buildozer Android environment
+        run: |
+          buildozer -v android debug || true
+
+
+      # ----------------------------------------
+      # Find Buildozer SDK
+      # ----------------------------------------
+      - name: Locate Buildozer SDK
+        run: |
+          echo "========================================"
+          echo "Searching for Buildozer SDK"
+          echo "========================================"
+
+          find "$HOME/.buildozer/android/platform" \
+            -maxdepth 5 \
+            -type d \
+            -name "android-sdk" \
+            -print || true
+
+          echo "========================================"
+          echo "Searching for sdkmanager"
+          echo "========================================"
+
+          find "$HOME/.buildozer/android/platform" \
+            -type f \
+            -name "sdkmanager" \
+            -print || true
+
+
+      # ----------------------------------------
+      # Install Build Tools into Buildozer SDK
+      # ----------------------------------------
+      - name: Install Buildozer SDK Build Tools
+        run: |
+          SDK="$HOME/.buildozer/android/platform/android-sdk"
+
+          echo "Buildozer SDK:"
+          echo "$SDK"
+
+          if [ ! -d "$SDK" ]; then
+            echo "ERROR: Buildozer SDK was not found."
+            exit 1
+          fi
+
+          SDKMANAGER=$(find "$HOME/.buildozer/android/platform" \
+            -type f \
+            -name "sdkmanager" \
+            -print -quit)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager was not found."
+            exit 1
+          fi
+
+          echo "sdkmanager:"
+          echo "$SDKMANAGER"
+
+          chmod +x "$SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+
+      # ----------------------------------------
+      # Verify AIDL
+      # ----------------------------------------
+      - name: Verify AIDL
+        run: |
+          SDK="$HOME/.buildozer/android/platform/android-sdk"
+
+          echo "========================================"
+          echo "Buildozer SDK"
+          echo "$SDK"
+          echo "========================================"
+
+          echo "Build Tools:"
+          find "$SDK/build-tools" \
+            -maxdepth 2 \
+            -type f \
+            -name "aidl" \
+            -print
+
+          AIDL=$(find "$SDK/build-tools" \
+            -type f \
+            -name "aidl" \
+            -print -quit)
+
+          if [ -z "$AIDL" ]; then
+            echo "ERROR: AIDL was not installed."
+            exit 1
+          fi
+
+          chmod +x "$AIDL"
+
+          echo "========================================"
+          echo "AIDL version"
+          echo "========================================"
+
+          "$AIDL" --version
+
+
+      # ----------------------------------------
+      # Clean old build
+      # ----------------------------------------
+      - name: Clean Buildozer
+        run: |
+          buildozer android clean || true
+
+
+      # ----------------------------------------
+      # Build APK
+      # ----------------------------------------
       - name: Build APK
         run: |
           buildozer -v android debug
 
+
+      # ----------------------------------------
+      # Upload APK
+      # ----------------------------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
