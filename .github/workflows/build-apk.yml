@@ -96,22 +96,26 @@ jobs:
       # --------------------------------
       # Verify Android SDK + AIDL
       # --------------------------------
-      - name: Verify Android SDK
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+            - name: Verify Android SDK
+        	run: |
+          	echo "ANDROID_HOME=$ANDROID_HOME"
+          	echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
-          echo "Java:"
-          java -version
+          	echo "Java:"
+          	java -version
 
-          echo "Installed Build Tools:"
-          ls -la "$ANDROID_HOME/build-tools"
+          	echo "Installed Build Tools:"
+          	ls -la "$ANDROID_HOME/build-tools"
 
-          echo "Checking AIDL:"
-          test -f "$ANDROID_HOME/build-tools/35.0.0/aidl"
+          	echo "Checking AIDL:"
+          	test -f "$ANDROID_HOME/build-tools/35.0.0/aidl"
 
-          echo "AIDL version:"
-          "$ANDROID_HOME/build-tools/35.0.0/aidl" --version
+          	echo "AIDL executable found:"
+          	ls -lh "$ANDROID_HOME/build-tools/35.0.0/aidl"
+
+          	echo "AIDL help check:"
+          "$ANDROID_HOME/build-tools/35.0.0/aidl" --help > /dev/null
+          	echo "AIDL is installed and executable."
 
       # --------------------------------
       # Install Buildozer
@@ -143,7 +147,8 @@ jobs:
           echo "Buildozer AIDL:"
           test -f "$HOME/.buildozer/android/platform/android-sdk/build-tools/35.0.0/aidl"
 
-          "$HOME/.buildozer/android/platform/android-sdk/build-tools/35.0.0/aidl" --version
+                    "$HOME/.buildozer/android/platform/android-sdk/build-tools/35.0.0/aidl" --help > /dev/null
+          echo "Buildozer can access AIDL successfully."
 
       # --------------------------------
       # Build APK
