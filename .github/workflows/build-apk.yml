@@ -11,14 +11,23 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      # -----------------------------
+      # Checkout
+      # -----------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # -----------------------------
+      # Python
+      # -----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      # -----------------------------
+      # System dependencies
+      # -----------------------------
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -43,35 +52,52 @@ jobs:
             patch \
             pkg-config
 
+      # -----------------------------
+      # Android SDK
+      # -----------------------------
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Accept Android SDK licenses
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
+          yes | sdkmanager --licenses || true
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
 
+      # -----------------------------
+      # Verify Android SDK
+      # -----------------------------
       - name: Verify Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
-          echo "AIDL:"
+          echo "Installed Build Tools:"
+          ls -la "$ANDROID_HOME/build-tools"
+
+          echo "Checking AIDL:"
+          test -f "$ANDROID_HOME/build-tools/35.0.0/aidl"
+
+          echo "AIDL version:"
           "$ANDROID_HOME/build-tools/35.0.0/aidl" --version
 
+      # -----------------------------
+      # Install Buildozer
+      # -----------------------------
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip
           python -m pip install buildozer==1.6.0
           python -m pip install cython==0.29.37
 
-      - name: Configure Buildozer SDK
+      # -----------------------------
+      # Connect Buildozer to SDK
+      # -----------------------------
+      - name: Configure Buildozer Android SDK
         run: |
           mkdir -p "$HOME/.buildozer/android/platform"
 
@@ -80,16 +106,27 @@ jobs:
           ln -s "$ANDROID_HOME" \
             "$HOME/.buildozer/android/platform/android-sdk"
 
-          echo "Buildozer SDK:"
+          echo "Buildozer Android platform:"
           ls -la "$HOME/.buildozer/android/platform"
 
-          echo "AIDL through Buildozer path:"
+          echo "Buildozer SDK:"
+          ls -la "$HOME/.buildozer/android/platform/android-sdk"
+
+          echo "Buildozer AIDL:"
+          test -f "$HOME/.buildozer/android/platform/android-sdk/build-tools/35.0.0/aidl"
+
           "$HOME/.buildozer/android/platform/android-sdk/build-tools/35.0.0/aidl" --version
 
+      # -----------------------------
+      # Build APK
+      # -----------------------------
       - name: Build APK
         run: |
           buildozer -v android debug
 
+      # -----------------------------
+      # Upload APK
+      # -----------------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
