@@ -1,3 +1,4 @@
+```yaml
 name: Build Android APK
 
 on:
@@ -30,7 +31,7 @@ jobs:
       # Java 17
       # --------------------------------
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -94,7 +95,7 @@ jobs:
           sdkmanager "build-tools;35.0.0"
 
       # --------------------------------
-      # Verify Android SDK
+      # Verify Android SDK + AIDL
       # --------------------------------
       - name: Verify Android SDK
         run: |
@@ -108,14 +109,6 @@ jobs:
           echo ""
           echo "Android SDK:"
           ls -la "$ANDROID_HOME"
-
-          echo ""
-          echo "Command-line tools:"
-          find "$ANDROID_HOME/cmdline-tools" \
-            -maxdepth 3 \
-            -type f \
-            -name sdkmanager \
-            -print
 
           echo ""
           echo "Build Tools:"
@@ -135,13 +128,46 @@ jobs:
       # --------------------------------
       - name: Install Buildozer
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade "pip<26"
 
           python -m pip install \
             buildozer==1.6.0
 
           python -m pip install \
             cython==0.29.37
+
+          python -m pip install \
+            setuptools \
+            virtualenv
+
+          echo ""
+          echo "Installed versions:"
+          python --version
+          python -m pip --version
+          buildozer --version
+
+      # --------------------------------
+      # Clean Buildozer environment
+      #
+      # IMPORTANT:
+      # The previous build created:
+      #
+      # .buildozer/android/platform/
+      # build-*/build/venv/
+      #
+      # That internal venv contained the broken pip state.
+      # --------------------------------
+      - name: Clean Buildozer environment
+        run: |
+          echo "Cleaning previous Buildozer state..."
+
+          rm -rf "$HOME/.buildozer"
+          rm -rf ".buildozer"
+
+          mkdir -p "$HOME/.buildozer/android/platform"
+
+          echo ""
+          echo "Clean Buildozer environment created."
 
       # --------------------------------
       # Configure Buildozer Android SDK
@@ -151,15 +177,10 @@ jobs:
 
           mkdir -p "$HOME/.buildozer/android/platform"
 
-          # Remove any previous Buildozer SDK
-          rm -rf \
-            "$HOME/.buildozer/android/platform/android-sdk"
+          SDK="$HOME/.buildozer/android/platform/android-sdk"
 
           # Link Buildozer to GitHub Actions Android SDK
-          ln -s "$ANDROID_HOME" \
-            "$HOME/.buildozer/android/platform/android-sdk"
-
-          SDK="$HOME/.buildozer/android/platform/android-sdk"
+          ln -s "$ANDROID_HOME" "$SDK"
 
           echo ""
           echo "Buildozer platform:"
@@ -180,7 +201,7 @@ jobs:
           # Buildozer expects:
           #   tools/bin/sdkmanager
           #
-          # Modern Android SDK provides:
+          # Modern SDK provides:
           #   cmdline-tools/16.0/bin/sdkmanager
           #
           # Create compatibility path.
@@ -202,14 +223,29 @@ jobs:
 
           echo ""
           echo "Testing AIDL:"
-          test -x \
-            "$SDK/build-tools/35.0.0/aidl"
+          test -x "$SDK/build-tools/35.0.0/aidl"
 
           "$SDK/build-tools/35.0.0/aidl" \
             --help > /dev/null
 
           echo ""
           echo "Buildozer Android SDK is ready."
+
+      # --------------------------------
+      # Show Buildozer configuration
+      # --------------------------------
+      - name: Show Buildozer configuration
+        run: |
+          echo "----------------------------------------"
+          echo "buildozer.spec"
+          echo "----------------------------------------"
+
+          if [ -f buildozer.spec ]; then
+            cat buildozer.spec
+          else
+            echo "ERROR: buildozer.spec not found!"
+            exit 1
+          fi
 
       # --------------------------------
       # Build APK
@@ -219,19 +255,66 @@ jobs:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+
+          # Prevent Python from creating unexpected bytecode
+          PYTHONDONTWRITEBYTECODE: "1"
+
         run: |
 
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "========================================"
+          echo "BUILD ENVIRONMENT"
+          echo "========================================"
+
+          echo "Python:"
+          python --version
+
+          echo ""
+          echo "Pip:"
+          python -m pip --version
 
           echo ""
           echo "Java:"
           java -version
 
           echo ""
-          echo "Starting Buildozer..."
+          echo "JAVA_HOME:"
+          echo "$JAVA_HOME"
+
+          echo ""
+          echo "ANDROID_HOME:"
+          echo "$ANDROID_HOME"
+
+          echo ""
+          echo "ANDROID_SDK_ROOT:"
+          echo "$ANDROID_SDK_ROOT"
+
+          echo ""
+          echo "========================================"
+          echo "Starting Buildozer"
+          echo "========================================"
+
           buildozer -v android debug
+
+      # --------------------------------
+      # Verify APK
+      # --------------------------------
+      - name: Verify APK
+        run: |
+
+          echo "========================================"
+          echo "APK SEARCH"
+          echo "========================================"
+
+          find . -type f -name "*.apk" -print
+
+          if ! find . -type f -name "*.apk" | grep -q ".apk"; then
+            echo ""
+            echo "ERROR: APK was not created."
+            exit 1
+          fi
+
+          echo ""
+          echo "APK successfully created."
 
       # --------------------------------
       # Upload APK
@@ -240,5 +323,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: weatherapp-apk
-          path: bin/*.apk
+          path: |
+            bin/*.apk
           if-no-files-found: error
+```
