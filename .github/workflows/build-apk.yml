@@ -19,6 +19,25 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | sdkmanager --licenses || true
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
+
+      - name: Verify AIDL
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          find "$ANDROID_HOME/build-tools" -name aidl -type f -print
+          "$ANDROID_HOME/build-tools/35.0.0/aidl" --version
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -41,13 +60,11 @@ jobs:
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip
-          python -m pip install buildozer cython==0.29.37
+          python -m pip install buildozer==1.6.0 cython==0.29.37
 
       - name: Build APK
-        env:
-          ACCEPT_ANDROID_SDK_LICENSE: "1"
         run: |
-          yes | buildozer -v android debug
+          buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
