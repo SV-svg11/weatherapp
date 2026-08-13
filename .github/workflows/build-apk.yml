@@ -95,10 +95,15 @@ jobs:
           sdkmanager "build-tools;35.0.0"
 
       # --------------------------------
-      # Verify Android SDK + AIDL
+      # Verify Android SDK and AIDL
       # --------------------------------
       - name: Verify Android SDK
         run: |
+          echo "========================================"
+          echo "ANDROID SDK VERIFICATION"
+          echo "========================================"
+
+          echo ""
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
@@ -111,6 +116,14 @@ jobs:
           ls -la "$ANDROID_HOME"
 
           echo ""
+          echo "Command line tools:"
+          find "$ANDROID_HOME/cmdline-tools" \
+            -maxdepth 4 \
+            -type f \
+            -name sdkmanager \
+            -print
+
+          echo ""
           echo "Build Tools:"
           ls -la "$ANDROID_HOME/build-tools/35.0.0"
 
@@ -121,6 +134,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aidl" \
             --help > /dev/null
 
+          echo ""
           echo "AIDL is working."
 
       # --------------------------------
@@ -141,7 +155,10 @@ jobs:
             virtualenv
 
           echo ""
-          echo "Installed versions:"
+          echo "========================================"
+          echo "PYTHON BUILD ENVIRONMENT"
+          echo "========================================"
+
           python --version
           python -m pip --version
           buildozer --version
@@ -149,17 +166,12 @@ jobs:
       # --------------------------------
       # Clean Buildozer environment
       #
-      # IMPORTANT:
-      # The previous build created:
-      #
-      # .buildozer/android/platform/
-      # build-*/build/venv/
-      #
-      # That internal venv contained the broken pip state.
+      # Removes the previous broken:
+      # .buildozer/.../build/venv
       # --------------------------------
       - name: Clean Buildozer environment
         run: |
-          echo "Cleaning previous Buildozer state..."
+          echo "Cleaning Buildozer environment..."
 
           rm -rf "$HOME/.buildozer"
           rm -rf ".buildozer"
@@ -167,85 +179,182 @@ jobs:
           mkdir -p "$HOME/.buildozer/android/platform"
 
           echo ""
-          echo "Clean Buildozer environment created."
+          echo "Buildozer environment cleaned."
 
       # --------------------------------
       # Configure Buildozer Android SDK
+      #
+      # IMPORTANT:
+      # Do NOT assume cmdline-tools/16.0.
+      # Find the actual sdkmanager dynamically.
       # --------------------------------
       - name: Configure Buildozer Android SDK
+        shell: bash
         run: |
 
-          mkdir -p "$HOME/.buildozer/android/platform"
+          set -e
 
-          SDK="$HOME/.buildozer/android/platform/android-sdk"
-
-          # Link Buildozer to GitHub Actions Android SDK
-          ln -s "$ANDROID_HOME" "$SDK"
+          echo "========================================"
+          echo "CONFIGURING BUILDOZER ANDROID SDK"
+          echo "========================================"
 
           echo ""
-          echo "Buildozer platform:"
-          ls -la "$HOME/.buildozer/android/platform"
+          echo "ANDROID_HOME:"
+          echo "$ANDROID_HOME"
+
+          echo ""
+          echo "ANDROID_SDK_ROOT:"
+          echo "$ANDROID_SDK_ROOT"
+
+          # --------------------------------
+          # Find real sdkmanager
+          # --------------------------------
+          echo ""
+          echo "Searching for sdkmanager..."
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f \
+            -name sdkmanager \
+            -print \
+            -quit)"
+
+          if [ -z "$SDKMANAGER" ]; then
+
+            echo ""
+            echo "ERROR: sdkmanager was not found."
+
+            echo ""
+            echo "Contents of Android SDK:"
+            find "$ANDROID_HOME" \
+              -maxdepth 5 \
+              -type f \
+              \( -name sdkmanager -o -name aidl \) \
+              -print || true
+
+            exit 1
+          fi
+
+          echo ""
+          echo "REAL SDKMANAGER:"
+          echo "$SDKMANAGER"
+
+          echo ""
+          echo "SDKMANAGER VERSION:"
+          "$SDKMANAGER" --version
+
+          # --------------------------------
+          # Buildozer SDK path
+          # --------------------------------
+          BUILDOZER_PLATFORM="$HOME/.buildozer/android/platform"
+          BUILDOZER_SDK="$BUILDOZER_PLATFORM/android-sdk"
+
+          mkdir -p "$BUILDOZER_PLATFORM"
+
+          # Remove any previous SDK link
+          rm -rf "$BUILDOZER_SDK"
+
+          # Link Buildozer to GitHub Actions Android SDK
+          ln -s "$ANDROID_HOME" "$BUILDOZER_SDK"
+
+          echo ""
+          echo "Buildozer SDK:"
+          ls -la "$BUILDOZER_PLATFORM"
 
           echo ""
           echo "Buildozer Android SDK:"
-          ls -la "$SDK"
-
-          echo ""
-          echo "Modern sdkmanager:"
-          command -v sdkmanager
-          sdkmanager --version
+          ls -la "$BUILDOZER_SDK"
 
           # --------------------------------
-          # Buildozer 1.6.0 compatibility
+          # Buildozer compatibility path
           #
           # Buildozer expects:
-          #   tools/bin/sdkmanager
           #
-          # Modern SDK provides:
-          #   cmdline-tools/16.0/bin/sdkmanager
+          # android-sdk/tools/bin/sdkmanager
           #
-          # Create compatibility path.
+          # Modern Android SDK:
+          #
+          # android-sdk/cmdline-tools/<version>/bin/sdkmanager
           # --------------------------------
+          echo ""
+          echo "Creating Buildozer sdkmanager compatibility path..."
 
-          mkdir -p "$SDK/tools/bin"
+          mkdir -p "$ANDROID_HOME/tools/bin"
 
           ln -sf \
-            "$SDK/cmdline-tools/16.0/bin/sdkmanager" \
-            "$SDK/tools/bin/sdkmanager"
+            "$SDKMANAGER" \
+            "$ANDROID_HOME/tools/bin/sdkmanager"
 
           echo ""
           echo "Compatibility sdkmanager:"
-          ls -lh "$SDK/tools/bin/sdkmanager"
+          ls -lh "$ANDROID_HOME/tools/bin/sdkmanager"
+
+          echo ""
+          echo "Testing compatibility sdkmanager:"
+
+          "$ANDROID_HOME/tools/bin/sdkmanager" --version
+
+          # --------------------------------
+          # Verify through Buildozer path
+          # --------------------------------
+          echo ""
+          echo "Creating Buildozer compatibility path..."
+
+          mkdir -p "$BUILDOZER_SDK/tools/bin"
+
+          ln -sf \
+            "$SDKMANAGER" \
+            "$BUILDOZER_SDK/tools/bin/sdkmanager"
+
+          echo ""
+          echo "Buildozer sdkmanager:"
+          ls -lh "$BUILDOZER_SDK/tools/bin/sdkmanager"
 
           echo ""
           echo "Testing Buildozer sdkmanager:"
-          "$SDK/tools/bin/sdkmanager" --version
+
+          "$BUILDOZER_SDK/tools/bin/sdkmanager" --version
+
+          # --------------------------------
+          # Verify AIDL
+          # --------------------------------
+          echo ""
+          echo "Testing AIDL..."
+
+          AIDL="$ANDROID_HOME/build-tools/35.0.0/aidl"
+
+          if [ ! -x "$AIDL" ]; then
+            echo ""
+            echo "ERROR: AIDL not found:"
+            echo "$AIDL"
+            exit 1
+          fi
+
+          "$AIDL" --help > /dev/null
 
           echo ""
-          echo "Testing AIDL:"
-          test -x "$SDK/build-tools/35.0.0/aidl"
-
-          "$SDK/build-tools/35.0.0/aidl" \
-            --help > /dev/null
+          echo "AIDL is working."
 
           echo ""
-          echo "Buildozer Android SDK is ready."
+          echo "========================================"
+          echo "BUILDOZER ANDROID SDK IS READY"
+          echo "========================================"
 
       # --------------------------------
       # Show Buildozer configuration
       # --------------------------------
       - name: Show Buildozer configuration
         run: |
-          echo "----------------------------------------"
-          echo "buildozer.spec"
-          echo "----------------------------------------"
+          echo "========================================"
+          echo "BUILDOZER SPECIFICATION"
+          echo "========================================"
 
-          if [ -f buildozer.spec ]; then
-            cat buildozer.spec
-          else
+          if [ ! -f buildozer.spec ]; then
+            echo ""
             echo "ERROR: buildozer.spec not found!"
             exit 1
           fi
+
+          cat buildozer.spec
 
       # --------------------------------
       # Build APK
@@ -255,8 +364,6 @@ jobs:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-
-          # Prevent Python from creating unexpected bytecode
           PYTHONDONTWRITEBYTECODE: "1"
 
         run: |
@@ -265,12 +372,17 @@ jobs:
           echo "BUILD ENVIRONMENT"
           echo "========================================"
 
+          echo ""
           echo "Python:"
           python --version
 
           echo ""
           echo "Pip:"
           python -m pip --version
+
+          echo ""
+          echo "Buildozer:"
+          buildozer --version
 
           echo ""
           echo "Java:"
@@ -290,7 +402,7 @@ jobs:
 
           echo ""
           echo "========================================"
-          echo "Starting Buildozer"
+          echo "STARTING BUILDOZER"
           echo "========================================"
 
           buildozer -v android debug
@@ -302,19 +414,30 @@ jobs:
         run: |
 
           echo "========================================"
-          echo "APK SEARCH"
+          echo "SEARCHING FOR APK"
           echo "========================================"
 
-          find . -type f -name "*.apk" -print
+          find . \
+            -type f \
+            -name "*.apk" \
+            -print
 
           if ! find . -type f -name "*.apk" | grep -q ".apk"; then
+
             echo ""
             echo "ERROR: APK was not created."
+
+            echo ""
+            echo "bin directory:"
+            ls -la bin/ 2>/dev/null || true
+
             exit 1
           fi
 
           echo ""
-          echo "APK successfully created."
+          echo "========================================"
+          echo "APK SUCCESSFULLY CREATED"
+          echo "========================================"
 
       # --------------------------------
       # Upload APK
@@ -323,7 +446,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: weatherapp-apk
-          path: |
-            bin/*.apk
+          path: bin/*.apk
           if-no-files-found: error
 ```
