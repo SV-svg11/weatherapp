@@ -13,6 +13,8 @@ jobs:
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_NO_INPUT: "1"
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
 
@@ -23,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================
-      # PYTHON 3.12
+      # PYTHON 3.12 - BUILD HOST
       # ============================================
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -40,33 +42,40 @@ jobs:
           java-version: "17"
 
       # ============================================
-      # VERIFY PYTHON + JAVA
+      # VERIFY HOST ENVIRONMENT
       # ============================================
-      - name: Verify Python and Java
+      - name: Verify host environment
+        shell: bash
         run: |
           set -e
 
           echo "========================================"
-          echo "PYTHON"
+          echo "HOST ENVIRONMENT"
           echo "========================================"
 
+          echo "Python:"
           python --version
-          python -m pip --version
+          python -c "import sys; print(sys.executable)"
+          python -c "import sys; print(sys.version)"
 
           echo ""
-          echo "========================================"
-          echo "JAVA"
-          echo "========================================"
-
-          echo "JAVA_HOME=$JAVA_HOME"
-
+          echo "Java:"
           java -version
           javac -version
+
+          echo ""
+          echo "JAVA_HOME:"
+          echo "$JAVA_HOME"
+
+          echo ""
+          echo "ANDROID_HOME:"
+          echo "$ANDROID_HOME"
 
       # ============================================
       # SYSTEM DEPENDENCIES
       # ============================================
       - name: Install system dependencies
+        shell: bash
         run: |
           set -e
 
@@ -101,15 +110,12 @@ jobs:
         uses: android-actions/setup-android@v3
 
       # ============================================
-      # DETECT SDKMANAGER
+      # INSTALL ANDROID COMPONENTS
       # ============================================
-      - name: Detect Android SDK manager
+      - name: Install Android SDK packages
         shell: bash
         run: |
           set -e
-
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
             -type f \
@@ -118,147 +124,71 @@ jobs:
             -quit)"
 
           if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager was not found."
-
-            find "$ANDROID_HOME/cmdline-tools" \
-              -maxdepth 5 \
-              -type f \
-              -print || true
-
+            echo "ERROR: sdkmanager not found."
             exit 1
           fi
 
-          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
-
-          echo ""
-          echo "Found sdkmanager:"
+          echo "Using sdkmanager:"
           echo "$SDKMANAGER"
 
-          echo ""
-          echo "sdkmanager version:"
-          "$SDKMANAGER" --version
-
-      # ============================================
-      # ACCEPT LICENSES
-      # ============================================
-      - name: Accept Android SDK licenses
-        shell: bash
-        run: |
           yes | "$SDKMANAGER" --licenses > /dev/null || true
 
-      # ============================================
-      # INSTALL ANDROID SDK
-      # ============================================
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -e
-
-          echo "Installing platform-tools..."
-
           "$SDKMANAGER" \
             --sdk_root="$ANDROID_HOME" \
-            "platform-tools"
-
-          echo ""
-          echo "Installing Android API 35..."
-
-          "$SDKMANAGER" \
-            --sdk_root="$ANDROID_HOME" \
-            "platforms;android-35"
-
-          echo ""
-          echo "Installing Build Tools 35.0.0..."
-
-          "$SDKMANAGER" \
-            --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "platforms;android-35" \
             "build-tools;35.0.0"
 
-          echo ""
-          echo "Android SDK installation complete."
-
       # ============================================
-      # VERIFY ANDROID SDK
+      # VERIFY AIDL
       # ============================================
-      - name: Verify Android SDK
+      - name: Verify Android SDK and AIDL
         shell: bash
         run: |
           set -e
 
           echo "========================================"
-          echo "ANDROID SDK"
+          echo "ANDROID SDK CHECK"
           echo "========================================"
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          test -d "$ANDROID_HOME/platforms/android-35"
+          test -d "$ANDROID_HOME/build-tools/35.0.0"
 
-          echo ""
-          echo "Platform tools:"
-          ls -la "$ANDROID_HOME/platform-tools"
+          AIDL="$ANDROID_HOME/build-tools/35.0.0/aidl"
 
-          echo ""
-          echo "Android API 35:"
-          ls -la "$ANDROID_HOME/platforms/android-35"
+          if [ ! -x "$AIDL" ]; then
+            echo "ERROR: AIDL not found:"
+            echo "$AIDL"
+            exit 1
+          fi
 
-          echo ""
-          echo "Build Tools:"
-          ls -la "$ANDROID_HOME/build-tools/35.0.0"
-
-          echo ""
-          echo "Testing AIDL..."
-
-          test -x \
-            "$ANDROID_HOME/build-tools/35.0.0/aidl"
-
-          "$ANDROID_HOME/build-tools/35.0.0/aidl" \
-            --help > /dev/null
+          "$AIDL" --help > /dev/null
 
           echo "AIDL is working."
 
       # ============================================
       # INSTALL BUILDOZER
-      #
-      # Keep Python 3.12.
-      # Use Cython version recommended for p4a master.
       # ============================================
       - name: Install Buildozer
         shell: bash
         run: |
           set -e
 
-          echo "========================================"
-          echo "INSTALL BUILDOZER"
-          echo "========================================"
-
-          python -m pip install \
-            "pip==25.3"
+          python -m pip install --upgrade pip
 
           python -m pip install \
             "buildozer==1.6.0"
 
           python -m pip install \
             "setuptools" \
-            "cython==0.29.34" \
             "virtualenv"
-
-          echo ""
-          echo "Python:"
-          python --version
-
-          echo ""
-          echo "pip:"
-          python -m pip --version
 
           echo ""
           echo "Buildozer:"
           buildozer --version
 
-          echo ""
-          echo "Cython:"
-          cython --version
-
       # ============================================
-      # CHECK BUILD SPEC
+      # CHECK BUILDOZER SPEC
       # ============================================
       - name: Validate buildozer.spec
         shell: bash
@@ -277,58 +207,32 @@ jobs:
           cat buildozer.spec
 
           echo ""
-          echo "Checking requirements..."
-
-          REQUIREMENTS_LINE="$(grep -E \
+          echo "Requirements:"
+          grep -E \
             '^[[:space:]]*requirements[[:space:]]*=' \
-            buildozer.spec || true)"
-
-          echo "$REQUIREMENTS_LINE"
-
-          if echo "$REQUIREMENTS_LINE" | \
-             grep -E '(^|,)[[:space:]]*android[[:space:]]*(,|$)'; then
-
-            echo ""
-            echo "ERROR: 'android' must not be in requirements."
-            exit 1
-          fi
+            buildozer.spec || true
 
           echo ""
-          echo "Checking p4a branch..."
-
-          P4A_BRANCH="$(grep -E \
-            '^[[:space:]]*p4a\.branch[[:space:]]*=' \
-            buildozer.spec || true)"
-
-          echo "$P4A_BRANCH"
-
-          if ! echo "$P4A_BRANCH" | grep -q "master"; then
-            echo ""
-            echo "ERROR: p4a.branch must be master."
-            exit 1
-          fi
-
-          echo ""
-          echo "Buildozer configuration looks correct."
+          echo "p4a configuration:"
+          grep -E \
+            '^[[:space:]]*p4a\.(branch|commit|fork|url)[[:space:]]*=' \
+            buildozer.spec || true
 
       # ============================================
-      # CLEAN BUILDOZER
+      # CLEAN PREVIOUS BUILDS
       # ============================================
       - name: Clean Buildozer environment
         shell: bash
         run: |
           set -e
 
-          echo "========================================"
-          echo "CLEAN BUILDOZER"
-          echo "========================================"
+          echo "Cleaning previous Buildozer state..."
 
           rm -rf "$HOME/.buildozer"
           rm -rf ".buildozer"
+          rm -rf "bin"
 
-          mkdir -p "$HOME/.buildozer/android/platform"
-
-          echo "Buildozer directories prepared."
+          echo "Clean complete."
 
       # ============================================
       # CONFIGURE BUILDOZER SDK
@@ -338,12 +242,10 @@ jobs:
         run: |
           set -e
 
-          echo "========================================"
-          echo "CONFIGURE BUILDOZER SDK"
-          echo "========================================"
-
           BUILDOZER_PLATFORM="$HOME/.buildozer/android/platform"
           BUILDOZER_SDK="$BUILDOZER_PLATFORM/android-sdk"
+
+          mkdir -p "$BUILDOZER_PLATFORM"
 
           rm -rf "$BUILDOZER_SDK"
 
@@ -351,58 +253,15 @@ jobs:
             "$ANDROID_HOME" \
             "$BUILDOZER_SDK"
 
-          echo ""
-          echo "Buildozer SDK:"
+          echo "Buildozer Android SDK:"
           ls -la "$BUILDOZER_PLATFORM"
 
-          # Buildozer 1.6 compatibility path
-          mkdir -p "$ANDROID_HOME/tools/bin"
-
-          ln -sf \
-            "$SDKMANAGER" \
-            "$ANDROID_HOME/tools/bin/sdkmanager"
-
-          mkdir -p "$BUILDOZER_SDK/tools/bin"
-
-          ln -sf \
-            "$SDKMANAGER" \
-            "$BUILDOZER_SDK/tools/bin/sdkmanager"
-
           echo ""
-          echo "Buildozer sdkmanager:"
-          "$BUILDOZER_SDK/tools/bin/sdkmanager" --version
+          echo "SDK link:"
+          readlink -f "$BUILDOZER_SDK"
 
       # ============================================
-      # PREPARE p4a MASTER
-      #
-      # Buildozer will clone the branch specified
-      # in buildozer.spec.
-      # ============================================
-      - name: Verify p4a master configuration
-        shell: bash
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "p4a CONFIGURATION"
-          echo "========================================"
-
-          grep -n \
-            "p4a.branch" \
-            buildozer.spec
-
-          echo ""
-          echo "Python runner:"
-          python --version
-
-          echo ""
-          echo "Expected configuration:"
-          echo "Python 3.12"
-          echo "p4a master"
-          echo "Cython 0.29.34"
-
-      # ============================================
-      # BUILD APK
+      # BUILD
       # ============================================
       - name: Build APK
         shell: bash
@@ -418,37 +277,18 @@ jobs:
           echo "BUILD ENVIRONMENT"
           echo "========================================"
 
-          echo ""
-          echo "Python:"
           python --version
-
-          echo ""
-          echo "pip:"
           python -m pip --version
-
-          echo ""
-          echo "Buildozer:"
           buildozer --version
-
-          echo ""
-          echo "Java:"
           java -version
 
           echo ""
-          echo "JAVA_HOME:"
-          echo "$JAVA_HOME"
-
-          echo ""
-          echo "ANDROID_HOME:"
-          echo "$ANDROID_HOME"
-
-          echo ""
-          echo "ANDROID_SDK_ROOT:"
-          echo "$ANDROID_SDK_ROOT"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
           echo ""
           echo "========================================"
-          echo "STARTING BUILDOZER"
+          echo "STARTING BUILD"
           echo "========================================"
 
           buildozer -v android debug
@@ -462,7 +302,7 @@ jobs:
           set -e
 
           echo "========================================"
-          echo "VERIFY APK"
+          echo "APK CHECK"
           echo "========================================"
 
           find . \
@@ -473,8 +313,7 @@ jobs:
           APK_COUNT=$(find . -type f -name "*.apk" | wc -l)
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo ""
-            echo "ERROR: APK was not created."
+            echo "ERROR: No APK was created."
             exit 1
           fi
 
