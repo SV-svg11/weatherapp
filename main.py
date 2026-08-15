@@ -1,25 +1,12 @@
-import re
+import tkinter as tk
+from tkinter import ttk, messagebox
+import serial
+import serial.tools.list_ports
 import threading
 import time
+import re
 from collections import deque
 from datetime import datetime
-
-from kivy.app import App
-from kivy.clock import Clock
-from kivy.graphics import (
-    Color,
-    Line,
-    RoundedRectangle,
-    Ellipse
-)
-from kivy.metrics import dp
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.label import Label
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.spinner import Spinner
-from kivy.uix.widget import Widget
 
 
 # ============================================================
@@ -32,523 +19,78 @@ BAUD_RATE = 9600
 
 MAX_GRAPH_POINTS = 60
 
-HC05_UUID = "00001101-0000-1000-8000-00805F9B34FB"
+TEST_MODE = False
 
 
 # ============================================================
 # COLORS
 # ============================================================
 
-BG = (0.043, 0.067, 0.090, 1)
-CARD = (0.082, 0.114, 0.149, 1)
-CARD2 = (0.106, 0.149, 0.196, 1)
+BG = "#0b1117"
+CARD = "#151d26"
+CARD2 = "#1b2632"
 
-TEXT = (1, 1, 1, 1)
-MUTED = (0.60, 0.65, 0.71, 1)
+TEXT = "#ffffff"
+MUTED = "#9aa7b5"
 
-ACCENT = (0.22, 0.74, 0.97, 1)
-GREEN = (0.13, 0.77, 0.36, 1)
-RED = (0.94, 0.27, 0.27, 1)
-YELLOW = (0.98, 0.79, 0.08, 1)
-PURPLE = (0.65, 0.55, 0.98, 1)
-
-
-# ============================================================
-# ROUNDED PANEL
-# ============================================================
-
-class RoundedPanel(BoxLayout):
-
-    def __init__(self, **kwargs):
-
-        super().__init__(**kwargs)
-
-        with self.canvas.before:
-
-            Color(*CARD)
-
-            self.background = RoundedRectangle(
-                pos=self.pos,
-                size=self.size,
-                radius=[dp(12)]
-            )
-
-        self.bind(
-            pos=self.update_background,
-            size=self.update_background
-        )
-
-    def update_background(self, *args):
-
-        self.background.pos = self.pos
-        self.background.size = self.size
+ACCENT = "#38bdf8"
+GREEN = "#22c55e"
+RED = "#ef4444"
+YELLOW = "#facc15"
+PURPLE = "#a78bfa"
 
 
 # ============================================================
-# ICON BADGE
+# MAIN APPLICATION
 # ============================================================
 
-class IconBadge(Widget):
+class WeatherMonitor:
 
-    def __init__(
-        self,
-        symbol="T",
-        icon_color=ACCENT,
-        **kwargs
-    ):
+    def __init__(self, root):
 
-        super().__init__(**kwargs)
+        self.root = root
 
-        self.symbol = symbol
-        self.icon_color = icon_color
+        self.root.title(APP_TITLE)
 
-        self.size_hint = (None, None)
-        self.size = (dp(42), dp(42))
+        self.root.geometry("1200x800")
 
-        with self.canvas:
+        self.root.minsize(800, 650)
 
-            Color(
-                icon_color[0],
-                icon_color[1],
-                icon_color[2],
-                0.16
-            )
-
-            self.bg = RoundedRectangle(
-                pos=self.pos,
-                size=self.size,
-                radius=[dp(10)]
-            )
-
-            Color(*icon_color)
-
-            self.border = Line(
-                rounded_rectangle=(
-                    self.x,
-                    self.y,
-                    self.width,
-                    self.height,
-                    dp(10)
-                ),
-                width=1.3
-            )
-
-        self.bind(
-            pos=self.update_graphics,
-            size=self.update_graphics
-        )
-
-    def update_graphics(self, *args):
-
-        self.bg.pos = self.pos
-        self.bg.size = self.size
-
-        self.border.rounded_rectangle = (
-            self.x,
-            self.y,
-            self.width,
-            self.height,
-            dp(10)
-        )
-
-        self.canvas.after.clear()
-
-        with self.canvas.after:
-
-            Color(*self.icon_color)
-
-            # Simple graphical icon instead of emoji
-            if self.symbol == "T":
-
-                # thermometer style
-                Line(
-                    points=[
-                        self.center_x,
-                        self.y + dp(11),
-                        self.center_x,
-                        self.y + dp(29)
-                    ],
-                    width=2.5
-                )
-
-                Ellipse(
-                    pos=(
-                        self.center_x - dp(7),
-                        self.y + dp(5)
-                    ),
-                    size=(dp(14), dp(14))
-                )
-
-            elif self.symbol == "H":
-
-                # droplet style
-                Line(
-                    points=[
-                        self.center_x,
-                        self.y + dp(7),
-                        self.center_x - dp(8),
-                        self.y + dp(20),
-                        self.center_x,
-                        self.y + dp(33),
-                        self.center_x + dp(8),
-                        self.y + dp(20),
-                        self.center_x,
-                        self.y + dp(7)
-                    ],
-                    width=2
-                )
-
-            elif self.symbol == "L":
-
-                # light rays
-                Ellipse(
-                    pos=(
-                        self.center_x - dp(7),
-                        self.center_y - dp(7)
-                    ),
-                    size=(dp(14), dp(14))
-                )
-
-                for angle in range(0, 360, 45):
-
-                    import math
-
-                    a = math.radians(angle)
-
-                    x1 = self.center_x + math.cos(a) * dp(11)
-                    y1 = self.center_y + math.sin(a) * dp(11)
-
-                    x2 = self.center_x + math.cos(a) * dp(16)
-                    y2 = self.center_y + math.sin(a) * dp(16)
-
-                    Line(
-                        points=[x1, y1, x2, y2],
-                        width=1.8
-                    )
-
-            elif self.symbol == "LX":
-
-                # light bulb
-                Ellipse(
-                    pos=(
-                        self.center_x - dp(8),
-                        self.center_y - dp(9)
-                    ),
-                    size=(dp(16), dp(18))
-                )
-
-                Line(
-                    points=[
-                        self.center_x - dp(5),
-                        self.center_y - dp(11),
-                        self.center_x + dp(5),
-                        self.center_y - dp(11)
-                    ],
-                    width=2
-                )
-
-            elif self.symbol == "E":
-
-                # environment / cloud style
-                Line(
-                    points=[
-                        self.x + dp(8),
-                        self.center_y - dp(4),
-                        self.x + dp(15),
-                        self.center_y + dp(5),
-                        self.x + dp(25),
-                        self.center_y + dp(5),
-                        self.x + dp(32),
-                        self.center_y - dp(4),
-                        self.x + dp(28),
-                        self.center_y - dp(10),
-                        self.x + dp(12),
-                        self.center_y - dp(10),
-                        self.x + dp(8),
-                        self.center_y - dp(4)
-                    ],
-                    width=2
-                )
-
-            elif self.symbol == "S":
-
-                # status lightning
-                Line(
-                    points=[
-                        self.center_x + dp(4),
-                        self.y + dp(34),
-                        self.center_x - dp(7),
-                        self.center_y,
-                        self.center_x + dp(2),
-                        self.center_y,
-                        self.center_x - dp(5),
-                        self.y + dp(7)
-                    ],
-                    width=2.5
-                )
-
-
-# ============================================================
-# SENSOR CARD
-# ============================================================
-
-class SensorCard(RoundedPanel):
-
-    def __init__(
-        self,
-        symbol,
-        title,
-        value="--",
-        icon_color=ACCENT,
-        **kwargs
-    ):
-
-        super().__init__(
-            orientation="horizontal",
-            padding=[dp(12), dp(10)],
-            spacing=dp(10),
-            **kwargs
-        )
-
-        self.size_hint_y = None
-        self.height = dp(105)
-
-        icon = IconBadge(
-            symbol=symbol,
-            icon_color=icon_color
-        )
-
-        self.add_widget(icon)
-
-        text_box = BoxLayout(
-            orientation="vertical",
-            spacing=dp(2)
-        )
-
-        title_label = Label(
-            text=title,
-            color=MUTED,
-            font_size=dp(11),
-            bold=True,
-            halign="left",
-            valign="middle"
-        )
-
-        title_label.bind(
-            size=lambda instance, value:
-            setattr(instance, "text_size", value)
-        )
-
-        self.value_label = Label(
-            text=value,
-            color=TEXT,
-            font_size=dp(21),
-            bold=True,
-            halign="left",
-            valign="middle"
-        )
-
-        self.value_label.bind(
-            size=lambda instance, value:
-            setattr(instance, "text_size", value)
-        )
-
-        text_box.add_widget(title_label)
-        text_box.add_widget(self.value_label)
-
-        self.add_widget(text_box)
-
-    def set_value(self, value):
-
-        self.value_label.text = value
-
-
-# ============================================================
-# GRAPH
-# ============================================================
-
-class GraphWidget(Widget):
-
-    def __init__(
-        self,
-        data,
-        unit,
-        graph_color=ACCENT,
-        **kwargs
-    ):
-
-        super().__init__(**kwargs)
-
-        self.data = data
-        self.unit = unit
-        self.graph_color = graph_color
-
-        self.bind(
-            pos=self.redraw,
-            size=self.redraw
-        )
-
-        Clock.schedule_interval(
-            lambda dt: self.redraw(),
-            0.5
-        )
-
-    def redraw(self, *args):
-
-        self.canvas.clear()
-
-        width = self.width
-        height = self.height
-
-        if width < dp(80) or height < dp(80):
-            return
-
-        left = dp(35)
-        right = dp(10)
-        top = dp(15)
-        bottom = dp(25)
-
-        graph_width = width - left - right
-        graph_height = height - top - bottom
+        self.root.configure(bg=BG)
 
         # ----------------------------------------------------
-        # GRID
+        # SERIAL
         # ----------------------------------------------------
 
-        with self.canvas:
+        self.serial_connection = None
 
-            Color(
-                0.15,
-                0.20,
-                0.25,
-                1
-            )
+        self.connected = False
 
-            for i in range(5):
+        self.stop_thread = False
 
-                y = (
-                    self.y
-                    + bottom
-                    + graph_height * i / 4
-                )
-
-                Line(
-                    points=[
-                        self.x + left,
-                        y,
-                        self.x + width - right,
-                        y
-                    ],
-                    width=0.7
-                )
-
-            for i in range(6):
-
-                x = (
-                    self.x
-                    + left
-                    + graph_width * i / 5
-                )
-
-                Line(
-                    points=[
-                        x,
-                        self.y + bottom,
-                        x,
-                        self.y + height - top
-                    ],
-                    width=0.5
-                )
-
-        values = list(self.data)
-
-        if len(values) < 2:
-
-            return
-
-        minimum = min(values)
-        maximum = max(values)
-
-        if minimum == maximum:
-
-            minimum -= 1
-            maximum += 1
-
-        points = []
-
-        count = len(values)
-
-        for index, value in enumerate(values):
-
-            x = (
-                self.x
-                + left
-                + (
-                    index / (count - 1)
-                ) * graph_width
-            )
-
-            normalized = (
-                value - minimum
-            ) / (
-                maximum - minimum
-            )
-
-            y = (
-                self.y
-                + bottom
-                + normalized * graph_height
-            )
-
-            points.extend([x, y])
-
-        with self.canvas:
-
-            Color(*self.graph_color)
-
-            Line(
-                points=points,
-                width=2.2,
-                joint="round"
-            )
-
-            # latest point
-
-            x = points[-2]
-            y = points[-1]
-
-            Ellipse(
-                pos=(
-                    x - dp(3),
-                    y - dp(3)
-                ),
-                size=(
-                    dp(6),
-                    dp(6)
-                )
-            )
-
-
-# ============================================================
-# MAIN APP
-# ============================================================
-
-class WeatherApp(App):
-
-    def build(self):
-
-        self.title = APP_TITLE
+        self.serial_thread = None
 
         # ----------------------------------------------------
-        # SENSOR DATA
+        # SENSOR VALUES
         # ----------------------------------------------------
 
         self.temperature = None
+
         self.humidity = None
+
         self.light = None
+
         self.luminous_intensity = None
+
         self.day_night = "--"
+
         self.status = "--"
+
+        self.last_update = "--"
+
+        # ----------------------------------------------------
+        # GRAPH DATA
+        # ----------------------------------------------------
 
         self.temperature_history = deque(
             maxlen=MAX_GRAPH_POINTS
@@ -563,669 +105,563 @@ class WeatherApp(App):
         )
 
         # ----------------------------------------------------
-        # BLUETOOTH
+        # TEST VALUES
         # ----------------------------------------------------
 
-        self.bluetooth_socket = None
-        self.connected = False
-        self.stop_thread = False
-        self.serial_thread = None
+        self.test_temperature = 30.0
+
+        self.test_humidity = 55.0
+
+        self.test_light = 200
+
+        self.test_direction = 1
 
         # ----------------------------------------------------
-        # ROOT
+        # CREATE UI
         # ----------------------------------------------------
 
-        root = BoxLayout(
-            orientation="vertical",
-            padding=dp(15),
-            spacing=dp(10)
-        )
+        self.create_header()
 
-        # FIXED BACKGROUND
-        with root.canvas.before:
+        self.create_connection_panel()
 
-            Color(*BG)
+        self.create_sensor_cards()
 
-            self.bg = RoundedRectangle(
-                pos=root.pos,
-                size=root.size
-            )
+        self.create_graphs()
 
-        root.bind(
-            pos=self.update_bg,
-            size=self.update_bg
-        )
+        self.create_bottom_status()
 
-        self.root_widget = root
+        self.refresh_ports()
+
+        self.update_graphs()
 
         # ----------------------------------------------------
-        # SCROLL
+        # CLOSE EVENT
         # ----------------------------------------------------
 
-        scroll = ScrollView(
-            do_scroll_x=False
+        self.root.protocol(
+            "WM_DELETE_WINDOW",
+            self.close_application
         )
 
-        content = BoxLayout(
-            orientation="vertical",
-            spacing=dp(10),
-            size_hint_y=None
+        # ----------------------------------------------------
+        # TEST MODE
+        # ----------------------------------------------------
+
+        if TEST_MODE:
+
+            self.run_test_mode()
+
+    # ========================================================
+    # HEADER
+    # ========================================================
+
+    def create_header(self):
+
+        header = tk.Frame(
+            self.root,
+            bg=BG
         )
 
-        content.bind(
-            minimum_height=content.setter(
-                "height"
-            )
+        header.pack(
+            fill="x",
+            padx=20,
+            pady=(15, 5)
         )
 
-        # ====================================================
-        # HEADER
-        # ====================================================
-
-        header = BoxLayout(
-            size_hint_y=None,
-            height=dp(65)
+        title = tk.Label(
+            header,
+            text="🌦  IoT WEATHER MONITOR",
+            font=("Segoe UI", 24, "bold"),
+            bg=BG,
+            fg=TEXT
         )
 
-        title_box = BoxLayout(
-            orientation="vertical"
+        title.pack(
+            side="left"
         )
 
-        title_box.add_widget(
-            Label(
-                text="IOT WEATHER MONITOR",
-                font_size=dp(24),
-                bold=True,
-                color=TEXT,
-                halign="left",
-                valign="middle"
-            )
-        )
-
-        self.clock_label = Label(
+        self.clock_label = tk.Label(
+            header,
             text="",
-            font_size=dp(11),
-            color=MUTED,
-            halign="left"
+            font=("Segoe UI", 11),
+            bg=BG,
+            fg=MUTED
         )
 
-        title_box.add_widget(
-            self.clock_label
+        self.clock_label.pack(
+            side="right"
         )
 
-        header.add_widget(title_box)
-
-        self.connection_status = Label(
-            text="● Bluetooth Disconnected",
-            color=RED,
-            font_size=dp(12),
-            bold=True,
-            halign="right",
-            valign="middle"
-        )
-
-        header.add_widget(
-            self.connection_status
-        )
-
-        content.add_widget(header)
-
-        # ====================================================
-        # BLUETOOTH PANEL
-        # ====================================================
-
-        bluetooth_panel = RoundedPanel(
-            orientation="horizontal",
-            padding=dp(10),
-            spacing=dp(8),
-            size_hint_y=None,
-            height=dp(60)
-        )
-
-        self.device_spinner = Spinner(
-            text="Select Bluetooth Device",
-            values=[],
-            background_color=CARD2,
-            color=TEXT,
-            size_hint_x=0.45
-        )
-
-        bluetooth_panel.add_widget(
-            self.device_spinner
-        )
-
-        refresh_button = Button(
-            text="REFRESH",
-            background_color=CARD2,
-            color=TEXT,
-            size_hint_x=0.18
-        )
-
-        refresh_button.bind(
-            on_press=lambda x:
-            self.refresh_bluetooth()
-        )
-
-        bluetooth_panel.add_widget(
-            refresh_button
-        )
-
-        self.connect_button = Button(
-            text="CONNECT",
-            background_color=GREEN,
-            color=TEXT,
-            bold=True,
-            size_hint_x=0.22
-        )
-
-        self.connect_button.bind(
-            on_press=lambda x:
-            self.toggle_bluetooth()
-        )
-
-        bluetooth_panel.add_widget(
-            self.connect_button
-        )
-
-        content.add_widget(
-            bluetooth_panel
-        )
-
-        # ====================================================
-        # SENSOR CARDS
-        # ====================================================
-
-        cards = GridLayout(
-            cols=3,
-            spacing=dp(8),
-            size_hint_y=None
-        )
-
-        cards.bind(
-            minimum_height=cards.setter(
-                "height"
-            )
-        )
-
-        self.temperature_card = SensorCard(
-            "T",
-            "TEMPERATURE",
-            "-- °C",
-            ACCENT
-        )
-
-        self.humidity_card = SensorCard(
-            "H",
-            "HUMIDITY",
-            "-- %",
-            ACCENT
-        )
-
-        self.light_card = SensorCard(
-            "L",
-            "LIGHT LEVEL",
-            "--",
-            YELLOW
-        )
-
-        self.lux_card = SensorCard(
-            "LX",
-            "LUMINOUS INTENSITY",
-            "-- lx",
-            PURPLE
-        )
-
-        self.environment_card = SensorCard(
-            "E",
-            "DAY / NIGHT",
-            "--",
-            YELLOW
-        )
-
-        self.status_card = SensorCard(
-            "S",
-            "STATUS",
-            "--",
-            GREEN
-        )
-
-        cards.add_widget(
-            self.temperature_card
-        )
-
-        cards.add_widget(
-            self.humidity_card
-        )
-
-        cards.add_widget(
-            self.light_card
-        )
-
-        cards.add_widget(
-            self.lux_card
-        )
-
-        cards.add_widget(
-            self.environment_card
-        )
-
-        cards.add_widget(
-            self.status_card
-        )
-
-        content.add_widget(cards)
-
-        # ====================================================
-        # GRAPH TITLE
-        # ====================================================
-
-        content.add_widget(
-            Label(
-                text="LIVE SENSOR DATA",
-                color=TEXT,
-                font_size=dp(18),
-                bold=True,
-                size_hint_y=None,
-                height=dp(38),
-                halign="left"
-            )
-        )
-
-        # ====================================================
-        # THREE GRAPHS SIDE BY SIDE
-        # ====================================================
-
-        graphs = GridLayout(
-            cols=3,
-            spacing=dp(8),
-            size_hint_y=None,
-            height=dp(245)
-        )
-
-        # ----------------------------------------------------
-        # TEMPERATURE GRAPH
-        # ----------------------------------------------------
-
-        temp_column = BoxLayout(
-            orientation="vertical",
-            spacing=dp(5)
-        )
-
-        temp_column.add_widget(
-            Label(
-                text="Temperature",
-                color=TEXT,
-                font_size=dp(13),
-                bold=True,
-                size_hint_y=None,
-                height=dp(25),
-                halign="left"
-            )
-        )
-
-        temp_panel = RoundedPanel()
-
-        self.temperature_graph = GraphWidget(
-            self.temperature_history,
-            "C",
-            ACCENT
-        )
-
-        temp_panel.add_widget(
-            self.temperature_graph
-        )
-
-        temp_column.add_widget(
-            temp_panel
-        )
-
-        graphs.add_widget(
-            temp_column
-        )
-
-        # ----------------------------------------------------
-        # HUMIDITY GRAPH
-        # ----------------------------------------------------
-
-        humidity_column = BoxLayout(
-            orientation="vertical",
-            spacing=dp(5)
-        )
-
-        humidity_column.add_widget(
-            Label(
-                text="Humidity",
-                color=TEXT,
-                font_size=dp(13),
-                bold=True,
-                size_hint_y=None,
-                height=dp(25),
-                halign="left"
-            )
-        )
-
-        humidity_panel = RoundedPanel()
-
-        self.humidity_graph = GraphWidget(
-            self.humidity_history,
-            "%",
-            ACCENT
-        )
-
-        humidity_panel.add_widget(
-            self.humidity_graph
-        )
-
-        humidity_column.add_widget(
-            humidity_panel
-        )
-
-        graphs.add_widget(
-            humidity_column
-        )
-
-        # ----------------------------------------------------
-        # LIGHT GRAPH
-        # ----------------------------------------------------
-
-        light_column = BoxLayout(
-            orientation="vertical",
-            spacing=dp(5)
-        )
-
-        light_column.add_widget(
-            Label(
-                text="Light Level",
-                color=TEXT,
-                font_size=dp(13),
-                bold=True,
-                size_hint_y=None,
-                height=dp(25),
-                halign="left"
-            )
-        )
-
-        light_panel = RoundedPanel()
-
-        self.light_graph = GraphWidget(
-            self.light_history,
-            "ADC",
-            YELLOW
-        )
-
-        light_panel.add_widget(
-            self.light_graph
-        )
-
-        light_column.add_widget(
-            light_panel
-        )
-
-        graphs.add_widget(
-            light_column
-        )
-
-        content.add_widget(graphs)
-
-        # ====================================================
-        # CURRENT READINGS
-        # ====================================================
-
-        content.add_widget(
-            Label(
-                text="CURRENT READINGS",
-                color=TEXT,
-                font_size=dp(18),
-                bold=True,
-                size_hint_y=None,
-                height=dp(40),
-                halign="left"
-            )
-        )
-
-        self.data_label = Label(
-            text="Waiting for sensor data...",
-            color=MUTED,
-            font_size=dp(12),
-            size_hint_y=None,
-            height=dp(55),
-            halign="left",
-            valign="middle"
-        )
-
-        self.data_label.bind(
-            size=lambda instance, value:
-            setattr(
-                instance,
-                "text_size",
-                value
-            )
-        )
-
-        content.add_widget(
-            self.data_label
-        )
-
-        # ====================================================
-        # CONTROLS
-        # ====================================================
-
-        controls = RoundedPanel(
-            orientation="horizontal",
-            padding=dp(10),
-            spacing=dp(8),
-            size_hint_y=None,
-            height=dp(60)
-        )
-
-        refresh = Button(
-            text="REFRESH BLUETOOTH",
-            background_color=CARD2,
-            color=TEXT
-        )
-
-        refresh.bind(
-            on_press=lambda x:
-            self.refresh_bluetooth()
-        )
-
-        controls.add_widget(refresh)
-
-        disconnect = Button(
-            text="DISCONNECT",
-            background_color=RED,
-            color=TEXT
-        )
-
-        disconnect.bind(
-            on_press=lambda x:
-            self.disconnect()
-        )
-
-        controls.add_widget(disconnect)
-
-        content.add_widget(controls)
-
-        # ====================================================
-        # FOOTER
-        # ====================================================
-
-        content.add_widget(
-            Label(
-                text="Arduino  ->  HC-05  ->  Android  ->  IoT Weather Monitor",
-                color=ACCENT,
-                font_size=dp(11),
-                size_hint_y=None,
-                height=dp(40)
-            )
-        )
-
-        scroll.add_widget(content)
-
-        root.add_widget(scroll)
-
-        # ====================================================
-        # CLOCK
-        # ====================================================
-
-        Clock.schedule_interval(
-            self.update_clock,
-            1
-        )
-
-        # ====================================================
-        # BLUETOOTH REFRESH
-        # ====================================================
-
-        Clock.schedule_once(
-            lambda dt:
-            self.refresh_bluetooth(),
-            1
-        )
-
-        return root
-
-    # ========================================================
-    # BACKGROUND
-    # ========================================================
-
-    def update_bg(self, *args):
-
-        self.bg.pos = self.root_widget.pos
-        self.bg.size = self.root_widget.size
+        self.update_clock()
 
     # ========================================================
     # CLOCK
     # ========================================================
 
-    def update_clock(self, dt=None):
+    def update_clock(self):
 
-        self.clock_label.text = datetime.now().strftime(
-            "%d %b %Y    %I:%M:%S %p"
+        current_time = datetime.now().strftime(
+            "%d %b %Y   %I:%M:%S %p"
+        )
+
+        self.clock_label.config(
+            text=current_time
+        )
+
+        self.root.after(
+            1000,
+            self.update_clock
         )
 
     # ========================================================
-    # BLUETOOTH REFRESH
+    # CONNECTION PANEL
     # ========================================================
 
-    def refresh_bluetooth(self):
+    def create_connection_panel(self):
 
-        try:
+        panel = tk.Frame(
+            self.root,
+            bg=CARD,
+            padx=12,
+            pady=10
+        )
 
-            from jnius import autoclass
+        panel.pack(
+            fill="x",
+            padx=20,
+            pady=8
+        )
 
-            BluetoothAdapter = autoclass(
-                "android.bluetooth.BluetoothAdapter"
+        tk.Label(
+            panel,
+            text="COM Port",
+            font=("Segoe UI", 10, "bold"),
+            bg=CARD,
+            fg=TEXT
+        ).pack(
+            side="left",
+            padx=(5, 8)
+        )
+
+        self.port_combo = ttk.Combobox(
+            panel,
+            width=35,
+            state="readonly"
+        )
+
+        self.port_combo.pack(
+            side="left",
+            padx=5
+        )
+
+        refresh_button = tk.Button(
+            panel,
+            text="🔄 Refresh",
+            command=self.refresh_ports,
+            bg=CARD2,
+            fg=TEXT,
+            activebackground=ACCENT,
+            activeforeground=TEXT,
+            relief="flat",
+            padx=12,
+            pady=6
+        )
+
+        refresh_button.pack(
+            side="left",
+            padx=5
+        )
+
+        self.connect_button = tk.Button(
+            panel,
+            text="🔗 Connect",
+            command=self.toggle_connection,
+            bg=GREEN,
+            fg="white",
+            activebackground=GREEN,
+            relief="flat",
+            padx=15,
+            pady=6,
+            font=("Segoe UI", 10, "bold")
+        )
+
+        self.connect_button.pack(
+            side="left",
+            padx=5
+        )
+
+        self.connection_status = tk.Label(
+            panel,
+            text="● Disconnected",
+            font=("Segoe UI", 10, "bold"),
+            bg=CARD,
+            fg=RED
+        )
+
+        self.connection_status.pack(
+            side="right",
+            padx=10
+        )
+
+    # ========================================================
+    # SENSOR CARDS
+    # ========================================================
+
+    def create_sensor_cards(self):
+
+        container = tk.Frame(
+            self.root,
+            bg=BG
+        )
+
+        container.pack(
+            fill="x",
+            padx=20,
+            pady=8
+        )
+
+        for column in range(6):
+
+            container.grid_columnconfigure(
+                column,
+                weight=1
             )
 
-            adapter = BluetoothAdapter.getDefaultAdapter()
+        self.temperature_card = self.create_sensor_card(
+            container,
+            "🌡",
+            "TEMPERATURE",
+            "-- °C",
+            0
+        )
 
-            if adapter is None:
+        self.humidity_card = self.create_sensor_card(
+            container,
+            "💧",
+            "HUMIDITY",
+            "-- %",
+            1
+        )
 
-                self.device_spinner.text = (
-                    "Bluetooth unavailable"
+        self.light_card = self.create_sensor_card(
+            container,
+            "☀",
+            "LIGHT LEVEL",
+            "--",
+            2
+        )
+
+        self.lux_card = self.create_sensor_card(
+            container,
+            "💡",
+            "ESTIMATED LUX",
+            "-- lx",
+            3
+        )
+
+        self.environment_card = self.create_sensor_card(
+            container,
+            "🌤",
+            "ENVIRONMENT",
+            "--",
+            4
+        )
+
+        self.status_card = self.create_sensor_card(
+            container,
+            "⚡",
+            "STATUS",
+            "--",
+            5
+        )
+
+    # ========================================================
+    # CREATE SENSOR CARD
+    # ========================================================
+
+    def create_sensor_card(
+        self,
+        parent,
+        icon,
+        title,
+        value,
+        column
+    ):
+
+        card = tk.Frame(
+            parent,
+            bg=CARD,
+            padx=12,
+            pady=12
+        )
+
+        card.grid(
+            row=0,
+            column=column,
+            sticky="nsew",
+            padx=4
+        )
+
+        tk.Label(
+            card,
+            text=f"{icon}  {title}",
+            font=("Segoe UI", 9, "bold"),
+            bg=CARD,
+            fg=MUTED
+        ).pack(
+            anchor="w"
+        )
+
+        value_label = tk.Label(
+            card,
+            text=value,
+            font=("Segoe UI", 19, "bold"),
+            bg=CARD,
+            fg=TEXT
+        )
+
+        value_label.pack(
+            anchor="w",
+            pady=(8, 0)
+        )
+
+        return value_label
+
+    # ========================================================
+    # GRAPHS
+    # ========================================================
+
+    def create_graphs(self):
+
+        graph_container = tk.Frame(
+            self.root,
+            bg=BG
+        )
+
+        graph_container.pack(
+            fill="both",
+            expand=True,
+            padx=20,
+            pady=8
+        )
+
+        graph_container.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        graph_container.grid_columnconfigure(
+            1,
+            weight=1
+        )
+
+        graph_container.grid_columnconfigure(
+            2,
+            weight=1
+        )
+
+        graph_container.grid_rowconfigure(
+            1,
+            weight=1
+        )
+
+        # ----------------------------------------------------
+        # TEMPERATURE
+        # ----------------------------------------------------
+
+        tk.Label(
+            graph_container,
+            text="🌡 Temperature",
+            font=("Segoe UI", 12, "bold"),
+            bg=BG,
+            fg=TEXT
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=5
+        )
+
+        self.temperature_canvas = tk.Canvas(
+            graph_container,
+            bg=CARD,
+            highlightthickness=0
+        )
+
+        self.temperature_canvas.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=5,
+            pady=5
+        )
+
+        # ----------------------------------------------------
+        # HUMIDITY
+        # ----------------------------------------------------
+
+        tk.Label(
+            graph_container,
+            text="💧 Humidity",
+            font=("Segoe UI", 12, "bold"),
+            bg=BG,
+            fg=TEXT
+        ).grid(
+            row=0,
+            column=1,
+            sticky="w",
+            padx=5
+        )
+
+        self.humidity_canvas = tk.Canvas(
+            graph_container,
+            bg=CARD,
+            highlightthickness=0
+        )
+
+        self.humidity_canvas.grid(
+            row=1,
+            column=1,
+            sticky="nsew",
+            padx=5,
+            pady=5
+        )
+
+        # ----------------------------------------------------
+        # LIGHT
+        # ----------------------------------------------------
+
+        tk.Label(
+            graph_container,
+            text="☀ Light Level",
+            font=("Segoe UI", 12, "bold"),
+            bg=BG,
+            fg=TEXT
+        ).grid(
+            row=0,
+            column=2,
+            sticky="w",
+            padx=5
+        )
+
+        self.light_canvas = tk.Canvas(
+            graph_container,
+            bg=CARD,
+            highlightthickness=0
+        )
+
+        self.light_canvas.grid(
+            row=1,
+            column=2,
+            sticky="nsew",
+            padx=5,
+            pady=5
+        )
+
+    # ========================================================
+    # BOTTOM STATUS
+    # ========================================================
+
+    def create_bottom_status(self):
+
+        bottom = tk.Frame(
+            self.root,
+            bg=BG
+        )
+
+        bottom.pack(
+            fill="x",
+            padx=20,
+            pady=(5, 15)
+        )
+
+        self.update_label = tk.Label(
+            bottom,
+            text="Waiting for sensor data...",
+            font=("Segoe UI", 10),
+            bg=BG,
+            fg=MUTED
+        )
+
+        self.update_label.pack(
+            side="left"
+        )
+
+        self.data_label = tk.Label(
+            bottom,
+            text="Arduino → HC-05 → PC",
+            font=("Segoe UI", 10),
+            bg=BG,
+            fg=ACCENT
+        )
+
+        self.data_label.pack(
+            side="right"
+        )
+
+    # ========================================================
+    # REFRESH PORTS
+    # ========================================================
+
+    def refresh_ports(self):
+
+        ports = serial.tools.list_ports.comports()
+
+        port_list = []
+
+        for port in ports:
+
+            description = port.description
+
+            port_list.append(
+                f"{port.device} - {description}"
+            )
+
+        self.port_combo["values"] = port_list
+
+        if port_list:
+
+            # Prefer COM port containing Bluetooth
+            bluetooth_ports = [
+                p for p in port_list
+                if (
+                    "bluetooth" in p.lower()
+                    or "hc-05" in p.lower()
+                    or "standard serial" in p.lower()
                 )
+            ]
 
-                self.connection_status.text = (
-                    "● Bluetooth unavailable"
+            if bluetooth_ports:
+
+                self.port_combo.set(
+                    bluetooth_ports[0]
                 )
-
-                self.connection_status.color = RED
-
-                return
-
-            if not adapter.isEnabled():
-
-                self.device_spinner.text = (
-                    "Turn Bluetooth ON"
-                )
-
-                self.connection_status.text = (
-                    "● Turn Bluetooth ON"
-                )
-
-                self.connection_status.color = YELLOW
-
-                return
-
-            paired_devices = adapter.getBondedDevices()
-
-            iterator = paired_devices.iterator()
-
-            devices = []
-
-            while iterator.hasNext():
-
-                device = iterator.next()
-
-                name = device.getName()
-
-                address = device.getAddress()
-
-                devices.append(
-                    f"{name} | {address}"
-                )
-
-            if devices:
-
-                self.device_spinner.values = devices
-
-                hc05 = [
-                    device
-                    for device in devices
-                    if "HC-05" in device.upper()
-                ]
-
-                if hc05:
-
-                    self.device_spinner.text = hc05[0]
-
-                else:
-
-                    self.device_spinner.text = devices[0]
-
-                self.connection_status.text = (
-                    f"● {len(devices)} device(s) found"
-                )
-
-                self.connection_status.color = YELLOW
 
             else:
 
-                self.device_spinner.values = []
+                self.port_combo.current(0)
 
-                self.device_spinner.text = (
-                    "No paired devices"
-                )
-
-                self.connection_status.text = (
-                    "● No paired Bluetooth devices"
-                )
-
-                self.connection_status.color = RED
-
-        except Exception as error:
-
-            print(
-                "Bluetooth refresh error:",
-                error
+            self.connection_status.config(
+                text=f"● {len(port_list)} COM port(s) found",
+                fg=YELLOW
             )
 
-            self.device_spinner.text = (
-                "Bluetooth unavailable on PC"
+        else:
+
+            self.port_combo.set(
+                "No COM ports found"
             )
 
-            self.connection_status.text = (
-                "● Android Bluetooth only"
+            self.connection_status.config(
+                text="● No COM ports found",
+                fg=RED
             )
-
-            self.connection_status.color = YELLOW
 
     # ========================================================
-    # TOGGLE BLUETOOTH
+    # TOGGLE CONNECTION
     # ========================================================
 
-    def toggle_bluetooth(self):
+    def toggle_connection(self):
 
         if self.connected:
 
@@ -1233,108 +669,73 @@ class WeatherApp(App):
 
         else:
 
-            self.connect_bluetooth()
+            self.connect()
 
     # ========================================================
-    # CONNECT BLUETOOTH
+    # CONNECT
     # ========================================================
 
-    def connect_bluetooth(self):
+    def connect(self):
 
-        selected = self.device_spinner.text
+        selected = self.port_combo.get()
 
-        if selected in (
-            "Select Bluetooth Device",
-            "No paired devices",
-            "Bluetooth unavailable",
-            "Turn Bluetooth ON",
-            "Bluetooth error",
-            "Bluetooth unavailable on PC"
+        if (
+            not selected
+            or selected == "No COM ports found"
         ):
 
-            self.data_label.text = (
-                "Please pair and select HC-05 first."
+            messagebox.showwarning(
+                "Connection",
+                "Select a COM port first."
             )
 
             return
 
         match = re.search(
-            r"([0-9A-F]{2}(?::[0-9A-F]{2}){5})",
+            r"(COM\d+)",
             selected,
             re.IGNORECASE
         )
 
         if not match:
 
-            self.data_label.text = (
-                "Could not determine Bluetooth address."
+            messagebox.showerror(
+                "Connection",
+                "Could not determine the COM port."
             )
 
             return
 
-        address = match.group(1)
+        port = match.group(1)
 
         try:
 
-            from jnius import autoclass
-
-            BluetoothAdapter = autoclass(
-                "android.bluetooth.BluetoothAdapter"
+            self.serial_connection = serial.Serial(
+                port=port,
+                baudrate=BAUD_RATE,
+                timeout=1
             )
-
-            UUID = autoclass(
-                "java.util.UUID"
-            )
-
-            adapter = BluetoothAdapter.getDefaultAdapter()
-
-            device = adapter.getRemoteDevice(
-                address
-            )
-
-            uuid = UUID.fromString(
-                HC05_UUID
-            )
-
-            self.bluetooth_socket = (
-                device.createRfcommSocketToServiceRecord(
-                    uuid
-                )
-            )
-
-            adapter.cancelDiscovery()
-
-            self.data_label.text = (
-                "Connecting to HC-05..."
-            )
-
-            self.bluetooth_socket.connect()
 
             self.connected = True
+
             self.stop_thread = False
 
-            self.connect_button.text = (
-                "DISCONNECT"
+            self.connect_button.config(
+                text="⛓ Disconnect",
+                bg=RED
             )
 
-            self.connect_button.background_color = RED
-
-            device_name = selected.split(
-                "|"
-            )[0].strip()
-
-            self.connection_status.text = (
-                f"● Connected: {device_name}"
+            self.connection_status.config(
+                text=f"● Connected: {port}",
+                fg=GREEN
             )
 
-            self.connection_status.color = GREEN
-
-            self.data_label.text = (
-                "✓ Receiving live sensor data..."
+            self.update_label.config(
+                text="Receiving live sensor data..."
             )
 
             self.serial_thread = threading.Thread(
-                target=self.read_bluetooth,
+                target=self.read_serial,
                 daemon=True
             )
 
@@ -1342,45 +743,18 @@ class WeatherApp(App):
 
         except Exception as error:
 
-            print(
-                "Bluetooth connection error:",
-                error
-            )
+            self.serial_connection = None
 
-            self.bluetooth_socket = None
-            self.connected = False
-
-            self.connection_status.text = (
-                "● Connection failed"
-            )
-
-            self.connection_status.color = RED
-
-            self.data_label.text = (
-                f"Connection error: {error}"
+            messagebox.showerror(
+                "Connection Error",
+                f"Could not connect to {port}.\n\n{error}"
             )
 
     # ========================================================
-    # BLUETOOTH READER
+    # SERIAL READER
     # ========================================================
 
-    def read_bluetooth(self):
-
-        buffer = ""
-
-        stream = None
-
-        try:
-
-            stream = (
-                self.bluetooth_socket
-                .getInputStream()
-            )
-
-        except Exception as error:
-
-            print(error)
-            return
+    def read_serial(self):
 
         while (
             self.connected
@@ -1389,43 +763,44 @@ class WeatherApp(App):
 
             try:
 
-                byte_value = stream.read()
+                if (
+                    self.serial_connection
+                    and self.serial_connection.in_waiting
+                ):
 
-                if byte_value == -1:
-
-                    time.sleep(0.02)
-                    continue
-
-                char = chr(byte_value)
-
-                if char in ("\n", "\r"):
-
-                    if buffer.strip():
-
-                        line = buffer.strip()
-
-                        Clock.schedule_once(
-                            lambda dt,
-                            line=line:
-                            self.process_data(line)
+                    line = (
+                        self.serial_connection
+                        .readline()
+                        .decode(
+                            "utf-8",
+                            errors="ignore"
                         )
+                        .strip()
+                    )
 
-                    buffer = ""
+                    if line:
+
+                        self.root.after(
+                            0,
+                            self.process_data,
+                            line
+                        )
 
                 else:
 
-                    buffer += char
+                    time.sleep(0.02)
 
             except Exception as error:
 
                 print(
-                    "Bluetooth read error:",
+                    "Serial error:",
                     error
                 )
 
-                Clock.schedule_once(
-                    lambda dt:
-                    self.handle_connection_error()
+                self.root.after(
+                    0,
+                    self.handle_connection_error,
+                    str(error)
                 )
 
                 break
@@ -1441,9 +816,14 @@ class WeatherApp(App):
             line
         )
 
+        self.data_label.config(
+            text=f"RX: {line}"
+        )
+
         try:
 
             if ":" not in line:
+
                 return
 
             key, value = line.split(
@@ -1452,6 +832,7 @@ class WeatherApp(App):
             )
 
             key = key.strip().lower()
+
             value = value.strip()
 
             # ------------------------------------------------
@@ -1468,8 +849,8 @@ class WeatherApp(App):
 
                     self.temperature = number
 
-                    self.temperature_card.set_value(
-                        f"{number:.1f} °C"
+                    self.temperature_card.config(
+                        text=f"{number:.1f} °C"
                     )
 
                     self.temperature_history.append(
@@ -1490,8 +871,8 @@ class WeatherApp(App):
 
                     self.humidity = number
 
-                    self.humidity_card.set_value(
-                        f"{number:.1f} %"
+                    self.humidity_card.config(
+                        text=f"{number:.1f} %"
                     )
 
                     self.humidity_history.append(
@@ -1499,7 +880,7 @@ class WeatherApp(App):
                     )
 
             # ------------------------------------------------
-            # LIGHT
+            # LIGHT ADC
             # ------------------------------------------------
 
             elif key == "light":
@@ -1512,8 +893,8 @@ class WeatherApp(App):
 
                     self.light = number
 
-                    self.light_card.set_value(
-                        f"{number:.0f}"
+                    self.light_card.config(
+                        text=f"{number:.0f}"
                     )
 
                     self.light_history.append(
@@ -1521,13 +902,12 @@ class WeatherApp(App):
                     )
 
             # ------------------------------------------------
-            # LUX
+            # LUMINOUS INTENSITY
             # ------------------------------------------------
 
             elif key in (
                 "luminous intensity",
-                "luminous",
-                "lux"
+                "luminous"
             ):
 
                 number = self.extract_number(
@@ -1538,8 +918,8 @@ class WeatherApp(App):
 
                     self.luminous_intensity = number
 
-                    self.lux_card.set_value(
-                        f"{number:.0f} lx"
+                    self.lux_card.config(
+                        text=f"{number:.0f} lx"
                     )
 
             # ------------------------------------------------
@@ -1553,8 +933,8 @@ class WeatherApp(App):
 
                 self.day_night = value
 
-                self.environment_card.set_value(
-                    value.upper()
+                self.environment_card.config(
+                    text=value
                 )
 
             # ------------------------------------------------
@@ -1565,21 +945,25 @@ class WeatherApp(App):
 
                 self.status = value
 
-                self.status_card.set_value(
-                    value.upper()
+                self.status_card.config(
+                    text=value
                 )
 
             # ------------------------------------------------
-            # UPDATE
+            # TIME
             # ------------------------------------------------
 
-            current_time = datetime.now().strftime(
-                "%I:%M:%S %p"
+            self.last_update = (
+                datetime.now().strftime(
+                    "%I:%M:%S %p"
+                )
             )
 
-            self.data_label.text = (
-                f"Live data updated at {current_time}\n"
-                f"RX: {line}"
+            self.update_label.config(
+                text=(
+                    f"✓ Live data updated at "
+                    f"{self.last_update}"
+                )
             )
 
         except Exception as error:
@@ -1615,62 +999,363 @@ class WeatherApp(App):
         return None
 
     # ========================================================
+    # UPDATE GRAPHS
+    # ========================================================
+
+    def update_graphs(self):
+
+        self.draw_graph(
+            self.temperature_canvas,
+            self.temperature_history,
+            "°C"
+        )
+
+        self.draw_graph(
+            self.humidity_canvas,
+            self.humidity_history,
+            "%"
+        )
+
+        self.draw_graph(
+            self.light_canvas,
+            self.light_history,
+            "ADC"
+        )
+
+        self.root.after(
+            500,
+            self.update_graphs
+        )
+
+    # ========================================================
+    # DRAW GRAPH
+    # ========================================================
+
+    def draw_graph(
+        self,
+        canvas,
+        data,
+        unit
+    ):
+
+        canvas.delete("all")
+
+        width = canvas.winfo_width()
+
+        height = canvas.winfo_height()
+
+        if width < 50 or height < 50:
+
+            return
+
+        left = 45
+
+        right = 15
+
+        top = 20
+
+        bottom = 30
+
+        graph_width = (
+            width - left - right
+        )
+
+        graph_height = (
+            height - top - bottom
+        )
+
+        # ----------------------------------------------------
+        # GRID
+        # ----------------------------------------------------
+
+        for i in range(5):
+
+            y = (
+                top
+                + graph_height * i / 4
+            )
+
+            canvas.create_line(
+                left,
+                y,
+                width - right,
+                y,
+                fill="#263442"
+            )
+
+        for i in range(6):
+
+            x = (
+                left
+                + graph_width * i / 5
+            )
+
+            canvas.create_line(
+                x,
+                top,
+                x,
+                height - bottom,
+                fill="#1e2a35"
+            )
+
+        if len(data) < 2:
+
+            canvas.create_text(
+                width / 2,
+                height / 2,
+                text="Waiting for data...",
+                fill=MUTED,
+                font=("Segoe UI", 10)
+            )
+
+            return
+
+        values = list(data)
+
+        minimum = min(values)
+
+        maximum = max(values)
+
+        if minimum == maximum:
+
+            minimum -= 1
+
+            maximum += 1
+
+        # ----------------------------------------------------
+        # Y SCALE
+        # ----------------------------------------------------
+
+        for i in range(5):
+
+            value = (
+                maximum
+                - (
+                    (maximum - minimum)
+                    * i
+                    / 4
+                )
+            )
+
+            y = (
+                top
+                + graph_height * i / 4
+            )
+
+            canvas.create_text(
+                5,
+                y,
+                anchor="w",
+                text=f"{value:.0f}",
+                fill=MUTED,
+                font=("Segoe UI", 8)
+            )
+
+        # ----------------------------------------------------
+        # GRAPH POINTS
+        # ----------------------------------------------------
+
+        points = []
+
+        count = len(values)
+
+        for index, value in enumerate(values):
+
+            x = (
+                left
+                + (
+                    index
+                    / (count - 1)
+                )
+                * graph_width
+            )
+
+            normalized = (
+                value - minimum
+            ) / (
+                maximum - minimum
+            )
+
+            y = (
+                top
+                + graph_height
+                - normalized * graph_height
+            )
+
+            points.append(
+                (x, y)
+            )
+
+        # ----------------------------------------------------
+        # GRAPH LINE
+        # ----------------------------------------------------
+
+        for i in range(
+            len(points) - 1
+        ):
+
+            x1, y1 = points[i]
+
+            x2, y2 = points[i + 1]
+
+            canvas.create_line(
+                x1,
+                y1,
+                x2,
+                y2,
+                fill=ACCENT,
+                width=3,
+                smooth=True
+            )
+
+        # ----------------------------------------------------
+        # POINTS
+        # ----------------------------------------------------
+
+        for x, y in points:
+
+            canvas.create_oval(
+                x - 2,
+                y - 2,
+                x + 2,
+                y + 2,
+                fill=ACCENT,
+                outline=""
+            )
+
+        # ----------------------------------------------------
+        # UNIT
+        # ----------------------------------------------------
+
+        canvas.create_text(
+            width - right,
+            top,
+            anchor="ne",
+            text=unit,
+            fill=MUTED,
+            font=("Segoe UI", 9)
+        )
+
+    # ========================================================
+    # TEST MODE
+    # ========================================================
+
+    def run_test_mode(self):
+
+        self.test_temperature += (
+            0.2 * self.test_direction
+        )
+
+        self.test_humidity += (
+            0.3 * self.test_direction
+        )
+
+        self.test_light += (
+            10 * self.test_direction
+        )
+
+        if self.test_temperature >= 35:
+
+            self.test_direction = -1
+
+        if self.test_temperature <= 25:
+
+            self.test_direction = 1
+
+        test_data = [
+            f"Temperature: {self.test_temperature:.1f} C",
+            f"Humidity: {self.test_humidity:.1f} %",
+            f"Light: {self.test_light}",
+            f"Luminous Intensity: {self.test_light * 1.0:.0f} lux",
+            "Day/Night: DAY",
+            "Status: NORMAL"
+        ]
+
+        for line in test_data:
+
+            self.process_data(line)
+
+        self.root.after(
+            1000,
+            self.run_test_mode
+        )
+
+    # ========================================================
     # DISCONNECT
     # ========================================================
 
     def disconnect(self):
 
         self.stop_thread = True
+
         self.connected = False
 
         try:
 
-            if self.bluetooth_socket:
+            if self.serial_connection:
 
-                self.bluetooth_socket.close()
+                self.serial_connection.close()
 
         except Exception:
             pass
 
-        self.bluetooth_socket = None
+        self.serial_connection = None
 
-        self.connect_button.text = (
-            "CONNECT"
+        self.connect_button.config(
+            text="🔗 Connect",
+            bg=GREEN
         )
 
-        self.connect_button.background_color = GREEN
-
-        self.connection_status.text = (
-            "● Bluetooth Disconnected"
+        self.connection_status.config(
+            text="● Disconnected",
+            fg=RED
         )
 
-        self.connection_status.color = RED
-
-        self.data_label.text = (
-            "Bluetooth disconnected"
+        self.update_label.config(
+            text="Bluetooth disconnected"
         )
 
     # ========================================================
     # CONNECTION ERROR
     # ========================================================
 
-    def handle_connection_error(self):
+    def handle_connection_error(
+        self,
+        error
+    ):
 
         self.disconnect()
 
-        self.connection_status.text = (
-            "● Connection lost"
+        print(
+            "Connection error:",
+            error
         )
 
-        self.connection_status.color = RED
+        self.connection_status.config(
+            text="● Connection lost",
+            fg=RED
+        )
 
     # ========================================================
-    # STOP
+    # CLOSE
     # ========================================================
 
-    def on_stop(self):
+    def close_application(self):
 
-        self.disconnect()
+        self.stop_thread = True
+
+        self.connected = False
+
+        try:
+
+            if self.serial_connection:
+
+                self.serial_connection.close()
+
+        except Exception:
+            pass
+
+        self.root.destroy()
 
 
 # ============================================================
@@ -1679,4 +1364,8 @@ class WeatherApp(App):
 
 if __name__ == "__main__":
 
-    WeatherApp().run()
+    root = tk.Tk()
+
+    app = WeatherMonitor(root)
+
+    root.mainloop()
