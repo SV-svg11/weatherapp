@@ -15,6 +15,7 @@ jobs:
       PIP_NO_INPUT: "1"
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.20-8/x64
 
     steps:
 
@@ -25,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================
-      # PYTHON 3.12 - BUILD HOST
+      # PYTHON 3.12
       # ============================================
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -42,34 +43,39 @@ jobs:
           java-version: "17"
 
       # ============================================
-      # VERIFY HOST ENVIRONMENT
+      # VERIFY PYTHON / JAVA
       # ============================================
-      - name: Verify host environment
+      - name: Verify environment
         shell: bash
         run: |
           set -e
 
           echo "========================================"
-          echo "HOST ENVIRONMENT"
+          echo "PYTHON"
           echo "========================================"
 
-          echo "Python:"
           python --version
           python -c "import sys; print(sys.executable)"
           python -c "import sys; print(sys.version)"
 
           echo ""
-          echo "Java:"
+          echo "========================================"
+          echo "JAVA"
+          echo "========================================"
+
           java -version
           javac -version
 
           echo ""
-          echo "JAVA_HOME:"
-          echo "$JAVA_HOME"
+          echo "JAVA_HOME=$JAVA_HOME"
 
           echo ""
-          echo "ANDROID_HOME:"
-          echo "$ANDROID_HOME"
+          echo "========================================"
+          echo "ANDROID"
+          echo "========================================"
+
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
       # ============================================
       # SYSTEM DEPENDENCIES
@@ -110,7 +116,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       # ============================================
-      # INSTALL ANDROID COMPONENTS
+      # ANDROID PACKAGES
       # ============================================
       - name: Install Android SDK packages
         shell: bash
@@ -142,7 +148,7 @@ jobs:
       # ============================================
       # VERIFY AIDL
       # ============================================
-      - name: Verify Android SDK and AIDL
+      - name: Verify AIDL
         shell: bash
         run: |
           set -e
@@ -167,28 +173,36 @@ jobs:
           echo "AIDL is working."
 
       # ============================================
-      # INSTALL BUILDOZER
+      # INSTALL BUILD TOOLS
       # ============================================
-      - name: Install Buildozer
+      - name: Install Python build tools
         shell: bash
         run: |
           set -e
 
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade \
+            "pip<25"
 
           python -m pip install \
+            "setuptools<81" \
+            "wheel" \
+            "virtualenv" \
             "buildozer==1.6.0"
 
-          python -m pip install \
-            "setuptools" \
-            "virtualenv"
+          echo ""
+          echo "Python:"
+          python --version
+
+          echo ""
+          echo "pip:"
+          python -m pip --version
 
           echo ""
           echo "Buildozer:"
           buildozer --version
 
       # ============================================
-      # CHECK BUILDOZER SPEC
+      # CHECK BUILD SPEC
       # ============================================
       - name: Validate buildozer.spec
         shell: bash
@@ -212,14 +226,8 @@ jobs:
             '^[[:space:]]*requirements[[:space:]]*=' \
             buildozer.spec || true
 
-          echo ""
-          echo "p4a configuration:"
-          grep -E \
-            '^[[:space:]]*p4a\.(branch|commit|fork|url)[[:space:]]*=' \
-            buildozer.spec || true
-
       # ============================================
-      # CLEAN PREVIOUS BUILDS
+      # CLEAN OLD BUILDOZER STATE
       # ============================================
       - name: Clean Buildozer environment
         shell: bash
@@ -235,56 +243,79 @@ jobs:
           echo "Clean complete."
 
       # ============================================
-      # CONFIGURE BUILDOZER SDK
+      # FORCE BUILDOZER TO USE PYTHON 3.12
       # ============================================
-      - name: Configure Buildozer Android SDK
+      - name: Prepare Buildozer Python environment
         shell: bash
         run: |
           set -e
 
-          BUILDOZER_PLATFORM="$HOME/.buildozer/android/platform"
-          BUILDOZER_SDK="$BUILDOZER_PLATFORM/android-sdk"
+          echo "========================================"
+          echo "PYTHON TOOLCHAIN"
+          echo "========================================"
 
-          mkdir -p "$BUILDOZER_PLATFORM"
+          PYTHON_BIN="$(command -v python)"
 
-          rm -rf "$BUILDOZER_SDK"
+          echo "Python executable:"
+          echo "$PYTHON_BIN"
 
-          ln -s \
-            "$ANDROID_HOME" \
-            "$BUILDOZER_SDK"
-
-          echo "Buildozer Android SDK:"
-          ls -la "$BUILDOZER_PLATFORM"
+          python --version
 
           echo ""
-          echo "SDK link:"
-          readlink -f "$BUILDOZER_SDK"
+          echo "Python paths:"
+          which python
+          which python3
+          which pip
+
+          echo ""
+          echo "Python 3.14 search:"
+          find "$HOME/.buildozer" \
+            -type f \
+            -name python3.14 \
+            -o -name python3.14* \
+            2>/dev/null || true
+
+          echo ""
+          echo "Buildozer will use:"
+          echo "$PYTHON_BIN"
 
       # ============================================
-      # BUILD
+      # BUILD APK
       # ============================================
       - name: Build APK
         shell: bash
         env:
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-
+          PYTHONNOUSERSITE: "1"
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+          PIP_NO_INPUT: "1"
         run: |
           set -e
 
           echo "========================================"
-          echo "BUILD ENVIRONMENT"
+          echo "FINAL BUILD ENVIRONMENT"
           echo "========================================"
 
+          echo "Python:"
           python --version
+
+          echo ""
+          python -c "import sys; print(sys.executable)"
+
+          echo ""
+          echo "pip:"
           python -m pip --version
+
+          echo ""
+          echo "Buildozer:"
           buildozer --version
+
+          echo ""
+          echo "Java:"
           java -version
 
           echo ""
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "Android SDK:"
+          echo "$ANDROID_HOME"
 
           echo ""
           echo "========================================"
