@@ -1,3 +1,4 @@
+```yaml
 name: Build Android APK
 
 on:
@@ -17,7 +18,7 @@ jobs:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
-      # Keep python-for-android on the stable Python <= 3.12 branch.
+      # Prevent p4a/buildozer from accidentally using Python 3.13/3.14.
       P4A_BRANCH: master
 
     steps:
@@ -84,7 +85,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       # ============================================================
-      # ANDROID SDK COMPONENTS
+      # INSTALL MODERN ANDROID SDK COMPONENTS
       # ============================================================
       - name: Install Android SDK packages
         shell: bash
@@ -93,16 +94,16 @@ jobs:
 
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
 
-          if [ ! -x "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager not found:"
-            echo "$SDKMANAGER"
-            exit 1
-          fi
+          echo "Checking sdkmanager..."
+          test -x "$SDKMANAGER"
 
-          echo "Using sdkmanager:"
+          echo "sdkmanager:"
           "$SDKMANAGER" --version
 
+          echo "Accepting Android SDK licenses..."
           yes | "$SDKMANAGER" --licenses > /dev/null || true
+
+          echo "Installing required Android SDK packages..."
 
           "$SDKMANAGER" \
             --sdk_root="$ANDROID_HOME" \
@@ -111,32 +112,43 @@ jobs:
             "build-tools;35.0.0"
 
       # ============================================================
-      # VERIFY SDK + AIDL
+      # VERIFY MODERN SDK
       # ============================================================
-      - name: Verify Android SDK and AIDL
+      - name: Verify Android SDK
         shell: bash
         run: |
           set -e
 
           echo "========================================"
-          echo "ANDROID SDK CHECK"
+          echo "ANDROID SDK"
           echo "========================================"
 
-          test -d "$ANDROID_HOME/platforms/android-35"
-          test -d "$ANDROID_HOME/build-tools/35.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
           AIDL="$ANDROID_HOME/build-tools/35.0.0/aidl"
 
-          if [ ! -x "$AIDL" ]; then
-            echo "ERROR: AIDL not found:"
-            echo "$AIDL"
-            exit 1
-          fi
+          echo ""
+          echo "sdkmanager:"
+          "$SDKMANAGER" --version
 
-          echo "AIDL:"
+          echo ""
+          echo "Checking platform..."
+          test -d "$ANDROID_HOME/platforms/android-35"
+
+          echo ""
+          echo "Checking build-tools..."
+          test -d "$ANDROID_HOME/build-tools/35.0.0"
+
+          echo ""
+          echo "Checking AIDL..."
+          test -x "$AIDL"
+
           "$AIDL" --version || true
 
-          echo "AIDL is working."
+          echo ""
+          echo "Android SDK verification successful."
 
       # ============================================================
       # INSTALL BUILDOZER
@@ -157,7 +169,7 @@ jobs:
             "cython==0.29.34"
 
           echo "========================================"
-          echo "PYTHON / BUILDOZER"
+          echo "BUILD TOOLS"
           echo "========================================"
 
           python --version
@@ -166,37 +178,7 @@ jobs:
           buildozer --version
 
       # ============================================================
-      # FORCE P4A MASTER BRANCH
-      # ============================================================
-      - name: Configure python-for-android
-        shell: bash
-        run: |
-          set -e
-
-          if [ ! -f buildozer.spec ]; then
-            echo "ERROR: buildozer.spec not found."
-            exit 1
-          fi
-
-          echo "========================================"
-          echo "CONFIGURING P4A"
-          echo "========================================"
-
-          # Remove any existing p4a branch/commit settings.
-          sed -i '/^[[:space:]]*p4a\.branch[[:space:]]*=/d' buildozer.spec
-          sed -i '/^[[:space:]]*p4a\.commit[[:space:]]*=/d' buildozer.spec
-
-          # Add the stable p4a master branch.
-          sed -i '/^\[app\]/a p4a.branch = master' buildozer.spec
-
-          echo ""
-          echo "p4a configuration:"
-          grep -E \
-            '^[[:space:]]*p4a\.(branch|commit|fork|url)[[:space:]]*=' \
-            buildozer.spec || true
-
-      # ============================================================
-      # CHECK BUILDOZER SPEC
+      # VERIFY BUILD SPEC
       # ============================================================
       - name: Validate buildozer.spec
         shell: bash
@@ -207,13 +189,12 @@ jobs:
           echo "BUILDOZER SPEC"
           echo "========================================"
 
-          cat buildozer.spec
+          if [ ! -f buildozer.spec ]; then
+            echo "ERROR: buildozer.spec not found."
+            exit 1
+          fi
 
-          echo ""
-          echo "Requirements:"
-          grep -E \
-            '^[[:space:]]*requirements[[:space:]]*=' \
-            buildozer.spec || true
+          cat buildozer.spec
 
       # ============================================================
       # CLEAN BUILDOZER
@@ -229,41 +210,44 @@ jobs:
           rm -rf ".buildozer"
           rm -rf "bin"
 
-          echo "Clean complete."
+          echo "Buildozer state cleaned."
 
       # ============================================================
-      # CONFIGURE BUILDOZER SDK COMPATIBILITY PATH
+      # PREPARE BUILDOZER SDK DIRECTORY
+      #
+      # IMPORTANT:
+      # Do NOT create an android-sdk symlink here.
+      # Buildozer must be allowed to initialize its Android platform
+      # directory normally.
       # ============================================================
-      - name: Configure Buildozer Android SDK
+      - name: Prepare Buildozer environment
         shell: bash
         run: |
           set -e
 
-          BUILDOZER_PLATFORM="$HOME/.buildozer/android/platform"
-          BUILDOZER_SDK="$BUILDOZER_PLATFORM/android-sdk"
+          mkdir -p "$HOME/.buildozer/android/platform"
 
-          mkdir -p "$BUILDOZER_PLATFORM"
+          echo "========================================"
+          echo "BUILDOZER ENVIRONMENT"
+          echo "========================================"
 
-          rm -rf "$BUILDOZER_SDK"
-
-          ln -s \
-            "$ANDROID_HOME" \
-            "$BUILDOZER_SDK"
-
-          echo "Buildozer Android SDK:"
-          ls -la "$BUILDOZER_PLATFORM"
+          echo "ANDROID_HOME:"
+          echo "$ANDROID_HOME"
 
           echo ""
-          echo "Resolved SDK:"
-          readlink -f "$BUILDOZER_SDK"
+          echo "Android SDK contents:"
+          ls -la "$ANDROID_HOME"
 
           echo ""
-          echo "SDK manager:"
-          "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" \
-            --version
+          echo "Modern cmdline-tools:"
+          ls -la "$ANDROID_HOME/cmdline-tools/16.0/bin"
+
+          echo ""
+          echo "Build-tools:"
+          ls -la "$ANDROID_HOME/build-tools/35.0.0"
 
       # ============================================================
-      # BUILD
+      # BUILD APK
       # ============================================================
       - name: Build APK
         shell: bash
@@ -290,7 +274,7 @@ jobs:
 
           echo ""
           echo "========================================"
-          echo "STARTING BUILDOZER BUILD"
+          echo "STARTING BUILDOZER"
           echo "========================================"
 
           buildozer -v android debug
@@ -332,3 +316,4 @@ jobs:
           name: weatherapp-apk
           path: bin/*.apk
           if-no-files-found: error
+```
