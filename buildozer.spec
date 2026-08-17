@@ -12,7 +12,6 @@ version = 1.0
 requirements = python3,kivy==2.3.1,pyjnius
 
 orientation = portrait
-
 fullscreen = 0
 
 android.api = 35
